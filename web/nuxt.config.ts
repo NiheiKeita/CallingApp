@@ -14,7 +14,9 @@ export default defineNuxtConfig({
       title: 'たんこまゃん',
       meta: [
         { hid: 'og:image', property: 'og:image', content: '/images/logo.png' },
+        { name: 'viewport', content: 'width=device-width' },
       ],
+
       link: [{ rel: 'icon', href: '/favicon.ico' }],
     },
   },
