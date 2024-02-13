@@ -43,6 +43,7 @@
     "typescript": "^5.2.2"
   },
   "dependencies": {
+    "@skyway-sdk/room": "^1.7.0",
     "swiper": "^8.4.7",
     "vue-awesome-swiper": "^5.0.1"
   }
