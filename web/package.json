@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "@skyway-sdk/room": "^1.7.0",
+    "gsap": "^3.12.5",
     "swiper": "^8.4.7",
     "vue-awesome-swiper": "^5.0.1"
   }

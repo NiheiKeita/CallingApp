@@ -5,16 +5,35 @@
     SkyWayStreamFactory,
   } from '@skyway-sdk/room';
   import { ref } from 'vue';
+  import { useRouter } from 'vue-router';
+
   const ENTER_ROOM_KEY = 'enter_room';
   const LEAVE_ROOM_KEY = 'leave_room';
   const SUBMIT_TEXT_KEY = 'submit_text';
-
+  const router = useRouter();
+  // ブラウザバックを無効化
+  // addEventListener('popstate', () => {
+  //   router.push('/call');
+  // });
+  window.addEventListener('popstate', () => {
+    console.log('ボタンがクリックされました');
+    leaveFunction();
+  });
   const myName = ref('');
   const inputSubmitData = ref('');
   const isShowPopup = ref(true);
-  const memberList = [];
+  let localVideoPublication = null;
+  let localAudioPublication = null;
+  let localDataPublication = null;
+  let channelMember = null;
+  let context = null;
+  let channel = null;
 
-  let dataConnection = null;
+  const memberList = [];
+  const { textMove } = useTextMove();
+  const { createRemoteDivAudio, createRemoteDivVideo } = useCallTag();
+  // const { dataConnection, dataSubmit, initData } = useCall();
+
   const myMemberData = {
     dataTyepe: ENTER_ROOM_KEY,
     name: null,
@@ -23,9 +42,9 @@
     dataID: null,
     videoID: null,
   };
-
-  const { audio, video } =
-    await SkyWayStreamFactory.createMicrophoneAudioAndCameraStream();
+  let dataStream = null;
+  let audioStream = null;
+  let videoStream = null;
   const setName = () => {
     if (myName.value === '') {
       return;
@@ -40,11 +59,19 @@
       dataTyepe: SUBMIT_TEXT_KEY,
       text: inputSubmitData.value,
     };
-    dataConnection.write(submitData);
-    createText(inputSubmitData.value);
+    dataStream.write(submitData);
+    textMove(inputSubmitData.value);
     inputSubmitData.value = '';
   };
   const leaveRoom = () => {
+    channelMember = null;
+    localVideoPublication = null;
+    localAudioPublication = null;
+    localDataPublication = null;
+    channel = null;
+    context = null;
+    videoStream = null;
+    audioStream = null;
     return navigateTo({
       path: routePathList('call_list'),
     });
@@ -53,81 +80,84 @@
     // 退室ボタンを押したときの処理
     // NOTE:抜ける前にみんなに退室を知らせる
     myMemberData.dataTyepe = LEAVE_ROOM_KEY;
-    dataConnection.write(myMemberData);
+    dataStream?.write(myMemberData);
+    localVideoPublication.disable();
+    localAudioPublication.disable();
+    channelMember.leave();
+    channel.dispose();
+    context.dispose();
     leaveRoom();
   };
+
+  const videoChange = () => {
+    localVideoPublication.disable();
+    localAudioPublication.disable();
+    localVideoPublication.enable();
+    localAudioPublication.enable();
+    // channelMember.unpublish(videoStream);
+    // channelMember.unpublish(audioStream);
+  };
   const calltSart = async function () {
+    // const { audio, video } =
+    //   await SkyWayStreamFactory.createMicrophoneAudioAndCameraStream();
+    videoStream = await SkyWayStreamFactory.createCameraVideoStream();
+    audioStream = await SkyWayStreamFactory.createMicrophoneAudioStream();
+    dataStream = await SkyWayStreamFactory.createDataStream();
     const remoteMediaArea = document.getElementById('remote-media-area');
     const remoteAudioArea = document.getElementById('remote-audio-area');
-
+    // initData();
     // 自分のビデオエリア作成
-    const divVideo = createLocalDivVideo(myName.value);
     const localVideo = document.createElement('video');
+    const divVideo = createLocalDivVideo(myName.value);
     localVideo.playsInline = true;
     localVideo.autoplay = true;
-    video.attach(localVideo);
+    videoStream.attach(localVideo);
     divVideo.appendChild(localVideo);
     remoteMediaArea.appendChild(divVideo);
     await localVideo.play();
 
-    dataConnection = await SkyWayStreamFactory.createDataStream();
+    // dataConnection = dataConnectionCall();
     const taken = await skywayToken();
-    const context = await SkyWayContext.Create(taken);
-    const channel = await SkyWayRoom.FindOrCreate(context, {
+    context?.dispose();
+    context = await SkyWayContext.Create(taken);
+    channel = await SkyWayRoom.FindOrCreate(context, {
       // TODO:sfuに変更すればsfu通信に変わる（DATA通信ができないっぽい）
       type: 'p2p',
       // TODO:ROOMのIDに修正
       name: 'nihei',
     });
-    const me = await channel.join();
+    channelMember = await channel.join();
 
-    await me.publish(video);
-    await me.publish(audio);
-    await me.publish(dataConnection);
+    localVideoPublication = await channelMember.publish(videoStream);
+    localAudioPublication = await channelMember.publish(audioStream);
+    // localVideoPublication.disable();
+
+    localDataPublication = await channelMember.publish(dataStream);
 
     const subscribeAndAttach = async (publication) => {
-      if (publication.publisher.id === me.id) return;
+      if (publication.publisher.id === channelMember.id) return;
 
-      const { stream } = await me.subscribe(publication.id);
+      const { stream } = await channelMember.subscribe(publication.id);
       switch (stream.contentType) {
         case 'video':
           {
-            // 入ってきた人のvideoを作成する
-            const divVideo = createRemoteDivVideo(stream.id);
-            const remoteVideo = document.createElement('video');
-            remoteVideo.playsInline = true;
-            remoteVideo.autoplay = true;
-            stream.attach(remoteVideo);
-            divVideo.appendChild(remoteVideo);
+            const divVideo = createRemoteDivVideo(stream);
             remoteMediaArea.appendChild(divVideo);
           }
           break;
         case 'audio':
           {
-            // 入ってきた人のAudioを作成する
-            const divAudio = document.createElement('div');
-            divAudio.setAttribute('class', 'js-audio-area');
-            const elm = document.createElement('audio');
-            const inputAudioID = document.createElement('input');
-            inputAudioID.setAttribute('value', stream.id);
-            inputAudioID.setAttribute('class', 'js-audio-id');
-            inputAudioID.setAttribute('type', 'hidden');
-            elm.controls = true;
-            elm.autoplay = true;
-            stream.attach(elm);
-            divAudio.appendChild(elm);
-            divAudio.appendChild(inputAudioID);
+            // TODO:多分これAudioに入れるんじゃなくてビデオに入れる
+            const divAudio = createRemoteDivAudio(stream);
             remoteAudioArea.appendChild(divAudio);
           }
           break;
         case 'data': {
           // データコネクション
-          myMemberData.id = me.id;
-          myMemberData.audioID = me.id;
-          myMemberData.dataID = audio.id;
-          myMemberData.videoID = video.id;
+          myMemberData.id = channelMember.id;
+          myMemberData.audioID = audioStream.id;
+          myMemberData.videoID = videoStream.id;
           myMemberData.name = myName.value;
-
           stream.onData.add((receiveData) => {
             // NOTE:きたデータをうけ取る
             if (receiveData.dataTyepe === ENTER_ROOM_KEY) {
@@ -138,13 +168,11 @@
               deleteMember(receiveData.id);
             } else if (receiveData.dataTyepe === SUBMIT_TEXT_KEY) {
               // TODO:チャットを受け取った処理を作成する
-              // elm.innerText += receiveData.text + '\n';
-              createText(receiveData.text);
+              textMove(receiveData.text);
             }
           });
-
-          // NOTE:入ってきた人にいｊぶデータ通信が確立されたときにその人に向けて自分のUserIDと表示の名前を送信する
-          dataConnection.write(myMemberData);
+          // NOTE:入ってきた人に向けて自分の情報を送信する
+          dataStream.write(myMemberData);
         }
       }
     };
@@ -162,9 +190,7 @@
       if (isOldMember(member.id)) {
         return;
       }
-      // elm.innerText += member.name + 'が入室しました' + '\n';
-
-      dataConnection.write(myMemberData);
+      dataStream.write(myMemberData);
       const memberData = {
         name: member.name,
         id: member.id,
@@ -201,6 +227,8 @@
       // オーディオを削除
       Array.from(document.getElementsByClassName('js-audio-id')).forEach(
         (e) => {
+          console.log(e.value);
+          console.log(member.audioID);
           if (e.value === member.audioID) {
             e.closest('.js-audio-area').remove();
           }
@@ -213,32 +241,9 @@
       );
     }
     function isOldMember(memberId) {
-      const oldMember = memberList.find((element) => element.id == memberId);
+      const oldMember = memberList.find((element) => element.id === memberId);
       return oldMember !== undefined;
     }
-  };
-  let count = 0;
-  const createText = async (comment) => {
-    const divText = document.createElement('div');
-    divText.id = 'text' + count; // アニメーション処理で対象の指定に必要なidを設定
-    count++;
-    divText.style.position = 'fixed'; // テキストのは位置を絶対位置にするための設定
-    divText.style.whiteSpace = 'nowrap'; // 画面右端での折り返しがなく、画面外へはみ出すようにする
-    divText.style.left = document.documentElement.clientWidth + 'px'; // 初期状態の横方向の位置は画面の右端に設定
-    const random = Math.round(
-      Math.random() * document.documentElement.clientHeight
-    );
-    divText.style.top = random + 'px'; // 初期状態の縦方向の位置は画面の上端から下端の間に設定（ランダムな配置に）
-    divText.appendChild(document.createTextNode(comment)); // 画面上に表示されるテキストを設定
-    divText.style.fontSize = '20px'; // 流れるコメントのサイズを設定
-    document.body.appendChild(divText); // body直下へ挿入
-    // ライブラリを用いたテキスト移動のアニメーション： durationはアニメーションの時間、
-    // 横方向の移動距離は「画面の横幅＋画面を流れるテキストの要素の横幅」、移動中に次の削除処理がされないようawait
-    await gsap.to('#' + divText.id, {
-      duration: 5,
-      x: -1 * (document.documentElement.clientWidth + divText.clientWidth),
-    });
-    divText.parentNode.removeChild(divText); // 画面上の移動終了後に削除
   };
 </script>
 <template>
@@ -300,9 +305,9 @@
     <div class="fixed bottom-0 mx-auto w-full bg-gray-300 p-6">
       <div class="">
         <button
-          id="video_change"
           class="focus:shadow-outline mb-2 rounded bg-red-500 px-2 py-1 font-bold text-white hover:bg-red-700 focus:outline-none"
           type="button"
+          @click="videoChange"
         >
           ビデオ切り替え
         </button>
