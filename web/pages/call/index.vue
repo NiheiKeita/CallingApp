@@ -89,13 +89,23 @@
     leaveRoom();
   };
 
+  const isVideoOn = ref(true);
   const videoChange = () => {
-    localVideoPublication.disable();
-    localAudioPublication.disable();
-    localVideoPublication.enable();
-    localAudioPublication.enable();
-    // channelMember.unpublish(videoStream);
-    // channelMember.unpublish(audioStream);
+    if (isVideoOn.value) {
+      localVideoPublication.disable();
+    } else {
+      localVideoPublication.enable();
+    }
+    isVideoOn.value = !isVideoOn.value;
+  };
+  const isAudioOn = ref(true);
+  const audioChange = () => {
+    if (isAudioOn.value) {
+      localAudioPublication.disable();
+    } else {
+      localAudioPublication.enable();
+    }
+    isAudioOn.value = !isAudioOn.value;
   };
   const calltSart = async function () {
     // const { audio, video } =
@@ -303,13 +313,22 @@
       class="justify-left grid w-full grid-cols-2 items-center justify-center p-8 lg:grid-cols-3"
     ></div>
     <div class="fixed bottom-0 mx-auto w-full bg-gray-300 p-6">
-      <div class="">
+      <div class="flex">
         <button
-          class="focus:shadow-outline mb-2 rounded bg-red-500 px-2 py-1 font-bold text-white hover:bg-red-700 focus:outline-none"
+          class="focus:shadow-outline m-1 mb-2 rounded bg-red-500 px-2 py-1 font-bold text-white hover:bg-red-700 focus:outline-none"
           type="button"
           @click="videoChange"
         >
-          ビデオ切り替え
+          <p v-show="isVideoOn">ビデオOFF</p>
+          <p v-show="!isVideoOn">ビデオON</p>
+        </button>
+        <button
+          class="focus:shadow-outline m-1 mb-2 rounded bg-red-500 px-2 py-1 font-bold text-white hover:bg-red-700 focus:outline-none"
+          type="button"
+          @click="audioChange"
+        >
+          <p v-show="isAudioOn">オーディオOFF</p>
+          <p v-show="!isAudioOn">オーディオON</p>
         </button>
       </div>
       <div
@@ -336,10 +355,15 @@
 <style>
   .video-class {
     width: 100%;
+    height: 400px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     background-color: black;
     position: relative;
     video {
       width: 100%;
+      height: 100%;
       padding: 2px;
     }
     .video-name {
